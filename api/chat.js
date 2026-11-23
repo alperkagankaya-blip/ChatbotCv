@@ -39,7 +39,7 @@ ALPER'S CV:
 ${CV_INFO}
 `;
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
@@ -91,7 +91,9 @@ module.exports = async function handler(req, res) {
       if (geminiResponse.status === 429) {
         return res.status(429).json({ error: "Too many questions right now. Please wait a minute and try again." });
       }
-      return res.status(502).json({ error: "The AI service returned an error. Please try again later." });
+      // Show Gemini's real error message (useful while testing)
+      const detail = data?.error?.message || "unknown error";
+      return res.status(502).json({ error: `AI error (${geminiResponse.status}, model: ${MODEL}): ${detail}` });
     }
 
     const reply = data?.candidates?.[0]?.content?.parts
