@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alper Kağan Kaya | CV</title>
+  <meta name="description" content="CV of Alper Kağan Kaya, Management Information Systems student at Boğaziçi University." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ============ NAVIGATION ============ -->
+  <header class="navbar">
+    <a href="#home" class="logo">AKK</a>
+    <nav>
+      <a href="#about">About</a>
+      <a href="#education">Education</a>
+      <a href="#skills">Skills</a>
+      <a href="#interests">Interests</a>
+      <a href="#contact">Contact</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============ HERO ============ -->
+    <section id="home" class="hero">
+      <div class="avatar">AK</div>
+      <h1>Alper Kağan Kaya</h1>
+      <p class="subtitle">Management Information Systems Student · Boğaziçi University</p>
+      <p class="tagline">Aspiring to work where <span class="accent">technology</span> meets <span class="accent">banking</span>.</p>
+      <div class="hero-buttons">
+        <a href="#contact" class="btn btn-primary">Get in touch</a>
+        <button class="btn btn-outline" id="open-chat-hero">Ask my chatbot</button>
+      </div>
+    </section>
+
+    <!-- ============ ABOUT ============ -->
+    <section id="about" class="card">
+      <h2>About Me</h2>
+      <p>
+        I am a second-year Management Information Systems student at Boğaziçi University.
+        I enjoy learning new things and putting them into practice. I am open to new ideas
+        and value them. After graduating, I want to work in fields that combine technology
+        and banking.
+      </p>
+    </section>
+
+    <!-- ============ EDUCATION ============ -->
+    <section id="education" class="card">
+      <h2>Education</h2>
+      <div class="timeline-item">
+        <div class="timeline-dot"></div>
+        <div>
+          <h3>Boğaziçi University</h3>
+          <p class="muted">B.S. in Management Information Systems · 2nd year (in progress)</p>
+          <p class="muted">Istanbul, Türkiye</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SKILLS ============ -->
+    <section id="skills" class="card">
+      <h2>Skills</h2>
+      <h3 class="skill-group">Technical</h3>
+      <div class="chips">
+        <span class="chip">Python</span>
+        <span class="chip">SQL</span>
+        <span class="chip">Excel</span>
+        <span class="chip">Statistics</span>
+        <span class="chip">Programming</span>
+      </div>
+      <h3 class="skill-group">Business</h3>
+      <div class="chips">
+        <span class="chip">Economics</span>
+        <span class="chip">Marketing</span>
+      </div>
+      <h3 class="skill-group">Languages</h3>
+      <div class="chips">
+        <span class="chip">Turkish (Native)</span>
+        <span class="chip">English</span>
+      </div>
+    </section>
+
+    <!-- ============ INTERESTS ============ -->
+    <section id="interests" class="card">
+      <h2>Interests</h2>
+      <div class="interest-grid">
+        <div class="interest">🎸<span>Electric &amp; classical guitar</span></div>
+        <div class="interest">♟️<span>Chess</span></div>
+        <div class="interest">🚴<span>Cycling</span></div>
+        <div class="interest">🏋️<span>Weightlifting</span></div>
+        <div class="interest">🎮<span>Video games</span></div>
+        <div class="interest">📚<span>Researching history &amp; medicine</span></div>
+      </div>
+    </section>
+
+    <!-- ============ CONTACT ============ -->
+    <section id="contact" class="card">
+      <h2>Contact</h2>
+      <div class="contact-list">
+        <a href="mailto:alperkagankaya@gmail.com" class="contact-item">✉️ alperkagankaya@gmail.com</a>
+        <a href="https://www.linkedin.com/in/alper-ka%C4%9Fan-kaya-51370423b/" target="_blank" rel="noopener" class="contact-item">💼 LinkedIn</a>
+        <a href="https://github.com/alperkagankaya-blip" target="_blank" rel="noopener" class="contact-item">💻 GitHub</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>© 2026 Alper Kağan Kaya</p>
+  </footer>
+
+  <!-- ============ CHATBOT ============ -->
+  <button id="chat-toggle" class="chat-toggle" aria-label="Open chat">💬</button>
+
+  <div id="chat-window" class="chat-window" aria-hidden="true">
+    <div class="chat-header">
+      <div>
+        <strong>Alper's CV Assistant</strong>
+        <span class="status">● Online</span>
+      </div>
+      <button id="chat-close" class="chat-close" aria-label="Close chat">✕</button>
+    </div>
+
+    <div id="chat-messages" class="chat-messages">
+      <div class="message bot">Hi! 👋 I'm Alper's CV assistant. Ask me anything about his education, skills or interests. (You can ask in English or Turkish.)</div>
+    </div>
+
+    <div id="suggestions" class="suggestions">
+      <button class="suggestion">What does Alper study?</button>
+      <button class="suggestion">What are his skills?</button>
+      <button class="suggestion">What are his career goals?</button>
+    </div>
+
+    <form id="chat-form" class="chat-input">
+      <input id="chat-text" type="text" placeholder="Type your question..." maxlength="500" autocomplete="off" required />
+      <button type="submit" aria-label="Send">➤</button>
+    </form>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
