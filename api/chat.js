@@ -39,7 +39,36 @@ ALPER'S CV:
 ${CV_INFO}
 `;
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+// Models to try, in order. If one is busy (503) or unavailable (404),
+// the next one is tried automatically.
+const MODELS = [
+  process.env.GEMINI_MODEL || "gemini-3.8-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+];
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function askGemini(model, apiKey, contents) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: contents,
+        generationConfig: { temperature: 0.3, maxOutputTokens: 1024 },
+      }),
+    }
+  );
+  const data = await response.json().catch(() => ({}));
+  return { status: response.status, ok: response.ok, data };
+}
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
@@ -67,43 +96,35 @@ module.exports = async function handler(req, res) {
     .map((m) => ({ role: m.role, parts: [{ text: m.text.slice(0, 1000) }] }));
   contents.push({ role: "user", parts: [{ text: message }] });
 
+  let lastError = "unknown error";
+
   try {
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents: contents,
-          generationConfig: { temperature: 0.3, maxOutputTokens: 1024 },
-        }),
-      }
-    );
+    for (const model of [...new Set(MODELS)]) {
+      const result = await askGemini(model, apiKey, contents);
 
-    const data = await geminiResponse.json();
-
-    if (!geminiResponse.ok) {
-      console.error("Gemini error:", JSON.stringify(data));
-      if (geminiResponse.status === 429) {
-        return res.status(429).json({ error: "Too many questions right now. Please wait a minute and try again." });
+      if (result.ok) {
+        const reply = result.data?.candidates?.[0]?.content?.parts
+          ?.map((p) => p.text || "")
+          .join("")
+          .trim();
+        return res.status(200).json({
+          reply: reply || "Sorry, I couldn't generate an answer. Please try asking differently.",
+        });
       }
-      // Show Gemini's real error message (useful while testing)
-      const detail = data?.error?.message || "unknown error";
-      return res.status(502).json({ error: `AI error (${geminiResponse.status}, model: ${MODEL}): ${detail}` });
+
+      lastError = `(${result.status}, model: ${model}): ${result.data?.error?.message || "unknown error"}`;
+      console.error("Gemini error " + lastError);
+
+      // Busy, rate-limited or model not available -> try the next model
+      if (result.status === 503 || result.status === 429 || result.status === 404 || result.status === 500) {
+        await wait(400);
+        continue;
+      }
+      // Any other error (e.g. invalid API key) -> stop trying
+      break;
     }
 
-    const reply = data?.candidates?.[0]?.content?.parts
-      ?.map((p) => p.text || "")
-      .join("")
-      .trim();
-
-    return res.status(200).json({
-      reply: reply || "Sorry, I couldn't generate an answer. Please try asking differently.",
-    });
+    return res.status(502).json({ error: "AI error " + lastError });
   } catch (err) {
     console.error("Server error:", err);
     return res.status(500).json({ error: "Server error. Please try again later." });
