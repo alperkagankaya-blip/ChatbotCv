@@ -39,9 +39,11 @@ ALPER'S CV:
 ${CV_INFO}
 `;
 
-// Models to try, in order. If one is busy (503) or unavailable (404),
-// the next one is tried automatically.
+// Models to try, in order. If one is busy (503), over its quota (429) or
+// unavailable (404), the next one is tried automatically.
+// Gemma is first: its free quota is separate from (and much larger than) Gemini Flash's.
 const MODELS = [
+  "gemma-3-27b-it",
   process.env.GEMINI_MODEL || "gemini-3.8-flash",
   "gemini-3.6-flash",
   "gemini-3.5-flash-lite",
@@ -60,11 +62,29 @@ const STREAM_TIMEOUT_MS = 25000;
 // (or fails), so we can still fall back to another model before sending
 // anything to the visitor.
 async function startGeminiStream(model, apiKey, contents, useThinkingConfig) {
+  const isGemma = model.startsWith("gemma");
   const generationConfig = { temperature: 0.3, maxOutputTokens: 1024 };
   // Gemini 3 Flash models "think" before answering by default, which adds
   // several seconds. Short CV answers don't need that, so keep it minimal.
-  if (useThinkingConfig) {
+  // (Gemma has no thinking setting.)
+  if (useThinkingConfig && !isGemma) {
     generationConfig.thinkingConfig = { thinkingLevel: "minimal" };
+  }
+
+  // Gemma doesn't accept system_instruction, so the rules go into the
+  // visitor's latest message instead (the last item in contents).
+  const requestBody = { contents, generationConfig };
+  if (isGemma) {
+    const last = contents[contents.length - 1];
+    requestBody.contents = [
+      ...contents.slice(0, -1),
+      {
+        role: "user",
+        parts: [{ text: `${SYSTEM_PROMPT}\nVISITOR'S MESSAGE:\n${last.parts[0].text}` }],
+      },
+    ];
+  } else {
+    requestBody.system_instruction = { parts: [{ text: SYSTEM_PROMPT }] };
   }
 
   const controller = new AbortController();
@@ -79,11 +99,7 @@ async function startGeminiStream(model, apiKey, contents, useThinkingConfig) {
           "Content-Type": "application/json",
           "x-goog-api-key": apiKey,
         },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents: contents,
-          generationConfig,
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       }
     );
@@ -173,7 +189,7 @@ module.exports = async function handler(req, res) {
       attempts++;
       let result = await startGeminiStream(model, apiKey, contents, true);
       // Some models don't accept the thinking setting -> retry once without it
-      if (result.status === 400) {
+      if (result.status === 400 && !model.startsWith("gemma")) {
         attempts++;
         result = await startGeminiStream(model, apiKey, contents, false);
       }
