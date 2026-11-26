@@ -71,17 +71,46 @@ async function sendMessage(text) {
       body: JSON.stringify({ message: text, history: history.slice(-10) }),
     });
 
-    const data = await response.json();
-    typing.remove();
-
-    if (!response.ok) {
+    // Errors come back as JSON; a normal answer is streamed as plain text.
+    const isJson = (response.headers.get("Content-Type") || "").includes("application/json");
+    if (!response.ok || isJson || !response.body) {
+      const data = await response.json().catch(() => ({}));
+      typing.remove();
       addMessage(data.error || "Something went wrong. Please try again.", "bot error");
       return;
     }
 
-    addMessage(data.reply, "bot");
+    // Show the answer word by word as it arrives
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let reply = "";
+    let bubble = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      reply += decoder.decode(value, { stream: true });
+      if (!bubble && reply.trim()) {
+        typing.remove();
+        bubble = addMessage("", "bot");
+      }
+      if (bubble) {
+        bubble.textContent = reply;
+        messagesBox.scrollTop = messagesBox.scrollHeight;
+      }
+    }
+    reply = (reply + decoder.decode()).trim();
+    typing.remove();
+
+    if (!reply) {
+      addMessage("Sorry, I couldn't generate an answer. Please try asking differently.", "bot error");
+      return;
+    }
+    if (bubble) bubble.textContent = reply;
+    else addMessage(reply, "bot");
+
     history.push({ role: "user", text: text });
-    history.push({ role: "model", text: data.reply });
+    history.push({ role: "model", text: reply });
   } catch (err) {
     typing.remove();
     addMessage("Could not reach the server. Please check your connection and try again.", "bot error");

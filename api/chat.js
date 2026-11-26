@@ -48,12 +48,18 @@ const MODELS = [
   "gemini-3.1-flash-lite",
 ];
 
+
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Max time to wait for one model before moving on to the next one.
+// Max time to wait for a model to START answering before moving on to the next one.
 const MODEL_TIMEOUT_MS = 8000;
+// Max time for a whole streamed answer.
+const STREAM_TIMEOUT_MS = 25000;
 
-async function askGemini(model, apiKey, contents, useThinkingConfig) {
+// Starts a streaming request. Resolves as soon as Gemini starts answering
+// (or fails), so we can still fall back to another model before sending
+// anything to the visitor.
+async function startGeminiStream(model, apiKey, contents, useThinkingConfig) {
   const generationConfig = { temperature: 0.3, maxOutputTokens: 1024 };
   // Gemini 3 Flash models "think" before answering by default, which adds
   // several seconds. Short CV answers don't need that, so keep it minimal.
@@ -61,9 +67,12 @@ async function askGemini(model, apiKey, contents, useThinkingConfig) {
     generationConfig.thinkingConfig = { thinkingLevel: "minimal" };
   }
 
+  const controller = new AbortController();
+  const startTimer = setTimeout(() => controller.abort(), MODEL_TIMEOUT_MS);
+
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`,
       {
         method: "POST",
         headers: {
@@ -75,17 +84,57 @@ async function askGemini(model, apiKey, contents, useThinkingConfig) {
           contents: contents,
           generationConfig,
         }),
-        signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+        signal: controller.signal,
       }
     );
-    const data = await response.json().catch(() => ({}));
-    return { status: response.status, ok: response.ok, data };
+    clearTimeout(startTimer);
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return { ok: false, status: response.status, data };
+    }
+
+    // The answer has started; give the whole stream a longer limit.
+    const streamTimer = setTimeout(() => controller.abort(), STREAM_TIMEOUT_MS);
+    return { ok: true, status: response.status, body: response.body, done: () => clearTimeout(streamTimer) };
   } catch (err) {
+    clearTimeout(startTimer);
     if (err.name === "TimeoutError" || err.name === "AbortError") {
-      return { status: 408, ok: false, data: { error: { message: "timed out" } } };
+      return { ok: false, status: 408, data: { error: { message: "timed out" } } };
     }
     throw err;
   }
+}
+
+// Reads Gemini's server-sent events and calls onText for each piece of answer text.
+async function readGeminiStream(body, onText) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const handleLine = (line) => {
+    if (!line.startsWith("data:")) return;
+    const json = line.slice(5).trim();
+    if (!json) return;
+    try {
+      const chunk = JSON.parse(json);
+      const text = (chunk?.candidates?.[0]?.content?.parts || [])
+        .filter((p) => !p.thought)
+        .map((p) => p.text || "")
+        .join("");
+      if (text) onText(text);
+    } catch (e) {
+      // ignore a malformed event
+    }
+  };
+
+  for await (const piece of body) {
+    buffer += decoder.decode(piece, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop();
+    lines.forEach(handleLine);
+  }
+  buffer += decoder.decode();
+  if (buffer) handleLine(buffer);
 }
 
 module.exports = async function handler(req, res) {
@@ -115,23 +164,42 @@ module.exports = async function handler(req, res) {
   contents.push({ role: "user", parts: [{ text: message }] });
 
   let lastError = "unknown error";
+  let streamStarted = false;
+  let attempts = 0;
 
   try {
     for (const model of [...new Set(MODELS)]) {
-      let result = await askGemini(model, apiKey, contents, true);
+      attempts++;
+      let result = await startGeminiStream(model, apiKey, contents, true);
       // Some models don't accept the thinking setting -> retry once without it
       if (result.status === 400) {
-        result = await askGemini(model, apiKey, contents, false);
+        attempts++;
+        result = await startGeminiStream(model, apiKey, contents, false);
       }
 
       if (result.ok) {
-        const reply = result.data?.candidates?.[0]?.content?.parts
-          ?.map((p) => p.text || "")
-          .join("")
-          .trim();
-        return res.status(200).json({
-          reply: reply || "Sorry, I couldn't generate an answer. Please try asking differently.",
-        });
+        // From here on the answer is sent to the visitor piece by piece as plain text.
+        streamStarted = true;
+        res.status(200);
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.setHeader("Cache-Control", "no-cache, no-transform");
+        res.setHeader("X-Accel-Buffering", "no");
+        // Which model answered and after how many tries (handy for checking speed)
+        res.setHeader("X-Model-Used", `${model}; attempts=${attempts}`);
+
+        let wroteAnything = false;
+        try {
+          await readGeminiStream(result.body, (text) => {
+            res.write(wroteAnything ? text : text.trimStart());
+            wroteAnything = true;
+          });
+        } finally {
+          result.done();
+        }
+        if (!wroteAnything) {
+          res.write("Sorry, I couldn't generate an answer. Please try asking differently.");
+        }
+        return res.end();
       }
 
       lastError = `(${result.status}, model: ${model}): ${result.data?.error?.message || "unknown error"}`;
@@ -149,6 +217,10 @@ module.exports = async function handler(req, res) {
     return res.status(502).json({ error: "AI error " + lastError });
   } catch (err) {
     console.error("Server error:", err);
+    if (streamStarted) {
+      // Part of the answer was already sent; just close it.
+      return res.end();
+    }
     return res.status(500).json({ error: "Server error. Please try again later." });
   }
 };
