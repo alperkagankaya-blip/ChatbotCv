@@ -50,24 +50,42 @@ const MODELS = [
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function askGemini(model, apiKey, contents) {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: contents,
-        generationConfig: { temperature: 0.3, maxOutputTokens: 1024 },
-      }),
+// Max time to wait for one model before moving on to the next one.
+const MODEL_TIMEOUT_MS = 8000;
+
+async function askGemini(model, apiKey, contents, useThinkingConfig) {
+  const generationConfig = { temperature: 0.3, maxOutputTokens: 1024 };
+  // Gemini 3 Flash models "think" before answering by default, which adds
+  // several seconds. Short CV answers don't need that, so keep it minimal.
+  if (useThinkingConfig) {
+    generationConfig.thinkingConfig = { thinkingLevel: "minimal" };
+  }
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          contents: contents,
+          generationConfig,
+        }),
+        signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+      }
+    );
+    const data = await response.json().catch(() => ({}));
+    return { status: response.status, ok: response.ok, data };
+  } catch (err) {
+    if (err.name === "TimeoutError" || err.name === "AbortError") {
+      return { status: 408, ok: false, data: { error: { message: "timed out" } } };
     }
-  );
-  const data = await response.json().catch(() => ({}));
-  return { status: response.status, ok: response.ok, data };
+    throw err;
+  }
 }
 
 module.exports = async function handler(req, res) {
@@ -100,7 +118,11 @@ module.exports = async function handler(req, res) {
 
   try {
     for (const model of [...new Set(MODELS)]) {
-      const result = await askGemini(model, apiKey, contents);
+      let result = await askGemini(model, apiKey, contents, true);
+      // Some models don't accept the thinking setting -> retry once without it
+      if (result.status === 400) {
+        result = await askGemini(model, apiKey, contents, false);
+      }
 
       if (result.ok) {
         const reply = result.data?.candidates?.[0]?.content?.parts
@@ -115,9 +137,9 @@ module.exports = async function handler(req, res) {
       lastError = `(${result.status}, model: ${model}): ${result.data?.error?.message || "unknown error"}`;
       console.error("Gemini error " + lastError);
 
-      // Busy, rate-limited or model not available -> try the next model
-      if (result.status === 503 || result.status === 429 || result.status === 404 || result.status === 500) {
-        await wait(400);
+      // Busy, rate-limited, too slow or not available -> try the next model
+      if ([404, 408, 429, 500, 503].includes(result.status)) {
+        if (result.status === 429 || result.status === 503) await wait(300);
         continue;
       }
       // Any other error (e.g. invalid API key) -> stop trying
