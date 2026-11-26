@@ -42,11 +42,11 @@ ${CV_INFO}
 // Models to try, in order. If one is busy (503), over its quota (429) or
 // unavailable (404), the next one is tried automatically.
 // Flash-lite is first: the bigger Flash models keep hitting their free quota (429)
-// or are overloaded (503). Gemma has a separate quota, but its model name still
-// needs checking (gemma-3-27b-it currently returns 404).
+// or are overloaded (503). Gemma is the backup because its free quota is separate
+// from Gemini's. The 26B A4B version only runs 4B parameters per answer, so it's fast.
 const MODELS = [
   "gemini-3.5-flash-lite",
-  "gemma-3-27b-it",
+  "gemma-4-26b-a4b-it",
   process.env.GEMINI_MODEL || "gemini-3.8-flash",
   "gemini-3.6-flash",
   "gemini-3.1-flash-lite",
