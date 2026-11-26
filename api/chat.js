@@ -183,16 +183,12 @@ module.exports = async function handler(req, res) {
 
   let lastError = "unknown error";
   let streamStarted = false;
-  let attempts = 0;
-  const failures = []; // e.g. "gemini-3.8-flash:429"
 
   try {
     for (const model of [...new Set(MODELS)]) {
-      attempts++;
       let result = await startGeminiStream(model, apiKey, contents, true);
       // Some models don't accept the thinking setting -> retry once without it
       if (result.status === 400 && !model.startsWith("gemma")) {
-        attempts++;
         result = await startGeminiStream(model, apiKey, contents, false);
       }
 
@@ -203,8 +199,6 @@ module.exports = async function handler(req, res) {
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
         res.setHeader("Cache-Control", "no-cache, no-transform");
         res.setHeader("X-Accel-Buffering", "no");
-        // Which model answered and after how many tries (handy for checking speed)
-        res.setHeader("X-Model-Used", `${model}; attempts=${attempts}; failed=${failures.join(",") || "none"}`);
 
         let wroteAnything = false;
         try {
@@ -222,7 +216,6 @@ module.exports = async function handler(req, res) {
       }
 
       lastError = `(${result.status}, model: ${model}): ${result.data?.error?.message || "unknown error"}`;
-      failures.push(`${model}:${result.status}`);
       console.error("Gemini error " + lastError);
 
       // Busy, rate-limited, too slow or not available -> try the next model
